@@ -17,9 +17,14 @@ cannot retain.
 
 `SerialNumber + AttemptNo` is the business key: the assignment defines the
 attempt number as the sequence of tests for one board. The database enforces
-that key, and each import runs in a serializable transaction. Re-running a file
-therefore leaves the resulting data unchanged, including if two scheduled runs
-overlap.
+that key, and each import runs in a serializable transaction. Re-running the
+same normalized data therefore leaves the database unchanged, including if two
+scheduled runs overlap. An identical existing attempt is counted as unchanged.
+If a later or overlapping export disagrees with an existing attempt, the same
+FAIL-wins rule is applied: the row may be conservatively updated, and the
+existing, incoming, and resolved results are printed as a database-conflict
+warning. The summary reports database conflicts separately, including how many
+caused an update.
 
 Exit codes are intended for a scheduler:
 
@@ -27,6 +32,9 @@ Exit codes are intended for a scheduler:
 - `1`: the import failed and its database transaction was rolled back.
 - `2`: valid rows were committed, but one or more rejected rows were printed to
   stderr with their source line and reason.
+
+Exit code `2` is a partial success: the scheduler should keep the committed
+valid rows but flag the run for investigation.
 
 ## Ambiguous records
 
@@ -37,6 +45,8 @@ first-pass success. If two conflicting records have the same result, a stable
 canonical ordering breaks the tie.
 
 The cost is a possible downward bias: an erroneous stale FAIL can override a
-correct PASS. Each conflict is therefore printed with both source line numbers,
-the chosen line, and the chosen result so production can investigate it rather
-than mistaking the policy for certainty.
+correct PASS. Source conflicts are printed with their line numbers and chosen
+result; database conflicts print the existing, incoming, and resolved results.
+This lets production investigate a decision rather than mistake the policy for
+certainty. An immutable import ledger and approval workflow would be preferable
+for historical corrections in a production system.

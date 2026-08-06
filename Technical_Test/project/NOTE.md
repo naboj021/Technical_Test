@@ -12,14 +12,17 @@ which is **87.84%** and matches production. Final yield uses the same cohort and
 counts 2,043 boards with any PASS by month end, or **95.51%**.
 
 The reporting procedures now use board-level cohorts and half-open date ranges.
-The PHP page displays first-pass and final yield side by side. The importer now
+Final yield is an as-of-period-end measure, so a later repair does not rewrite a
+closed period. The PHP page displays both figures side by side. The importer now
 uses a real CSV parser, normalizes identifiers, handles all three timestamp
 formats in the supplied export, validates domain values, and reports every
 rejected or conflicting source line. A database unique constraint on
 `SerialNumber + AttemptNo`, locked upserts, and a serializable transaction make
 both sequential and overlapping re-runs idempotent. Valid rows are committed
 when malformed rows are present, but the process returns exit code 2 so a
-scheduler cannot mistake that partial import for complete success.
+scheduler treats the run as a warning/partial success. If a later export
+conflicts with an existing attempt, FAIL-wins may update it; the decision and
+the number updated due to conflicts are reported explicitly.
 
 The 1,223-row February export normalizes to 1,165 unique attempts. It contains
 51 exact duplicate rows and seven conflicting occurrences covering six board
@@ -28,9 +31,9 @@ order-independent rule is conservative: uncertain evidence cannot inflate a
 quality KPI. Its cost is possible downward bias if a stale FAIL is wrong, so
 every decision is emitted with source line numbers for investigation.
 
-Automated regression tests were committed before the fixes and fail against the
-supplied code. They now cover the January figures, repaired boards, end-date
-boundaries, the real export, repeated and parallel imports, conflict outcomes,
-and visible rejection diagnostics. With more time I would persist import-batch
-and rejection audit records, agree the `Z` timestamp semantics with the station
-owners, add CI using an ephemeral SQL Server, and alert on partial imports.
+Automated tests now cover parser validation, the January figures, repaired
+boards, period-end boundaries, the real export, repeated and parallel imports,
+file and database conflict outcomes, and visible rejection diagnostics. With
+more time I would add an immutable import ledger plus an approval workflow for
+historical corrections, agree `Z` timestamp semantics with station owners, and
+run these tests in CI against an ephemeral SQL Server.
