@@ -33,7 +33,19 @@ every decision is emitted with source line numbers for investigation.
 
 Automated tests now cover parser validation, the January figures, repaired
 boards, period-end boundaries, the real export, repeated and parallel imports,
-file and database conflict outcomes, and visible rejection diagnostics. With
-more time I would add an immutable import ledger plus an approval workflow for
-historical corrections, agree `Z` timestamp semantics with station owners, and
-run these tests in CI against an ephemeral SQL Server.
+file and database conflict outcomes, and visible rejection diagnostics.
+
+## Verification performed
+
+- Fresh setup: 2,139 boards, 1,879 first-pass successes, **87.84% FPY**.
+- Final yield at 31 January: 2,043 of 2,139 boards, **95.51%**.
+- Dashboard returned HTTP 200 and displayed both figures.
+- First February import: 1,165 inserted, 51 duplicates ignored, seven conflict
+  occurrences resolved, zero rejected; the identical re-run inserted zero and
+  left 1,165 unchanged.
+- Final state: 3,474 rows and zero duplicate `(SerialNumber, AttemptNo)` keys.
+- All 15 unit tests and all 16 database/end-to-end regression checks passed.
+
+With more time I would add an immutable import ledger plus an approval workflow
+for historical corrections, agree `Z` timestamp semantics with station owners,
+and run these tests in CI against an ephemeral SQL Server.
