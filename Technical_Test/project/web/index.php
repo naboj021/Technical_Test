@@ -8,10 +8,11 @@ $to   = $_GET['to']   ?? '2026-01-31';
 try {
     $pdo    = testops_connection();
     $kpi    = first_pass_yield($pdo, $from, $to);
+    $final  = final_yield($pdo, $from, $to);
     $daily  = daily_volume($pdo, $from, $to);
     $error  = null;
 } catch (Throwable $e) {
-    $kpi = $daily = [];
+    $kpi = $final = $daily = [];
     $error = $e->getMessage();
 }
 ?>
@@ -23,7 +24,10 @@ try {
     <style>
         body { font-family: system-ui, sans-serif; margin: 2rem; color: #1c2733; }
         h1 { font-size: 1.25rem; }
-        .kpi { font-size: 3rem; font-weight: 600; margin: .5rem 0; }
+        .kpis { display: flex; gap: 3rem; flex-wrap: wrap; margin: 1rem 0 .5rem; }
+        .kpi-card { min-width: 15rem; }
+        .kpi-label { font-weight: 600; }
+        .kpi { font-size: 3rem; font-weight: 600; margin: .25rem 0; }
         .meta { color: #667; margin-bottom: 2rem; }
         table { border-collapse: collapse; }
         th, td { padding: .4rem .9rem; border-bottom: 1px solid #dde; text-align: right; }
@@ -32,14 +36,24 @@ try {
     </style>
 </head>
 <body>
-<h1>First pass yield</h1>
+<h1>Production yield</h1>
 
 <?php if ($error): ?>
     <p class="err"><?= htmlspecialchars($error) ?></p>
 <?php else: ?>
-    <div class="kpi"><?= htmlspecialchars((string) $kpi['FirstPassYieldPct']) ?>%</div>
+    <div class="kpis">
+        <section class="kpi-card">
+            <div class="kpi-label">First pass yield</div>
+            <div class="kpi"><?= htmlspecialchars((string) $kpi['FirstPassYieldPct']) ?>%</div>
+        </section>
+        <section class="kpi-card">
+            <div class="kpi-label">Final yield</div>
+            <div class="kpi"><?= htmlspecialchars((string) $final['FinalYieldPct']) ?>%</div>
+        </section>
+    </div>
     <div class="meta">
-        <?= (int) $kpi['UnitsPassed'] ?> passed of <?= (int) $kpi['UnitsTested'] ?> tested
+        First pass: <?= (int) $kpi['UnitsPassed'] ?> of <?= (int) $kpi['UnitsTested'] ?>
+        &middot; Final: <?= (int) $final['UnitsPassed'] ?> of <?= (int) $final['UnitsTested'] ?>
         &middot; <?= htmlspecialchars($from) ?> to <?= htmlspecialchars($to) ?>
     </div>
 

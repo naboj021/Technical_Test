@@ -23,6 +23,14 @@ function first_pass_yield(PDO $pdo, string $from, string $to): array
     return $stmt->fetch() ?: ['UnitsTested' => 0, 'UnitsPassed' => 0, 'FirstPassYieldPct' => 0];
 }
 
+function final_yield(PDO $pdo, string $from, string $to): array
+{
+    $stmt = $pdo->prepare("EXEC dbo.usp_GetFinalYield @FromDate = ?, @ToDate = ?");
+    $stmt->execute([$from, $to]);
+
+    return $stmt->fetch() ?: ['UnitsTested' => 0, 'UnitsPassed' => 0, 'FinalYieldPct' => 0];
+}
+
 function daily_volume(PDO $pdo, string $from, string $to): array
 {
     $stmt = $pdo->prepare("EXEC dbo.usp_GetDailyVolume @FromDate = ?, @ToDate = ?");

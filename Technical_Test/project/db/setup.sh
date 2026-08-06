@@ -24,6 +24,6 @@ for f in 01_schema.sql 02_seed.sql 03_procs.sql; do
 done
 
 echo
-echo "sanity check - expect FirstPassYieldPct = 91.88"
+echo "sanity check - expect FirstPassYieldPct = 87.84"
 docker exec "$CONTAINER" "$SQLCMD" -S localhost -U sa -P "$PASSWORD" -C -d TestOps \
   -Q "EXEC dbo.usp_GetFirstPassYield @FromDate='2026-01-01', @ToDate='2026-01-31';"

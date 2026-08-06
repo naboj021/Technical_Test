@@ -69,6 +69,15 @@ ROLLBACK TRANSACTION;
         "January final yield" `
         "expected 2139,2043,95.51; procedure missing or actual output differs"
 
+    $page = Invoke-WebRequest -Uri "http://localhost:8080/?from=2026-01-01&to=2026-01-31" -UseBasicParsing
+    Check (($page.StatusCode -eq 200) `
+        -and ($page.Content -match "First pass yield") `
+        -and ($page.Content -match "87\.84%") `
+        -and ($page.Content -match "Final yield") `
+        -and ($page.Content -match "95\.51%")) `
+        "Dashboard shows first-pass and final yield" `
+        "expected HTTP 200 with 87.84% FPY and 95.51% final yield"
+
     $before = [int](Invoke-Sql "SELECT COUNT(*) FROM dbo.TestSessions;")
     $savedErrorPreference = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
