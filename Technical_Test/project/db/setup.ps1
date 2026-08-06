@@ -28,6 +28,6 @@ foreach ($f in @("01_schema.sql", "02_seed.sql", "03_procs.sql")) {
 }
 
 Write-Host ""
-Write-Host "sanity check - expect FirstPassYieldPct = 91.88"
+Write-Host "sanity check - expect FirstPassYieldPct = 87.84"
 docker exec $container $sqlcmd -S localhost -U sa -P $password -C -d TestOps `
     -Q "EXEC dbo.usp_GetFirstPassYield @FromDate='2026-01-01', @ToDate='2026-01-31';"
