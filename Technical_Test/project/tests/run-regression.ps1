@@ -184,6 +184,56 @@ WHERE AttemptNo = 1
         }
     }
 
+    $databaseConflictCsv = Join-Path ([System.IO.Path]::GetTempPath()) "testops-db-conflict-$PID.csv"
+    try {
+        Invoke-Sql @"
+INSERT dbo.TestSessions (SerialNumber, ProductCode, StationCode, StartedAt, Result, AttemptNo)
+VALUES ('SN-DB-CONFLICT', 'PCA-1180', 'ICT-01', '2026-03-01 10:00:00', 'PASS', 1);
+SELECT 'OK';
+"@ | Out-Null
+        @(
+            "serial_number,product_code,station_code,started_at,result,attempt_no",
+            "SN-DB-CONFLICT,PCA-1180,ICT-01,2026-03-01 10:00:00,FAIL,1"
+        ) | Set-Content -LiteralPath $databaseConflictCsv -Encoding UTF8
+
+        $ErrorActionPreference = "Continue"
+        $databaseConflictOutput = & $DotNet run --project .\importer -- $databaseConflictCsv 2>&1
+        $databaseConflictExit = $LASTEXITCODE
+        $ErrorActionPreference = $savedErrorPreference
+        $databaseConflictText = $databaseConflictOutput -join "`n"
+        $databaseResult = Invoke-Sql `
+            "SELECT Result FROM dbo.TestSessions WHERE SerialNumber='SN-DB-CONFLICT' AND AttemptNo=1;"
+
+        Check (($databaseConflictExit -eq 0) `
+            -and ($databaseResult -eq "FAIL") `
+            -and ($databaseConflictText -match "existing=PASS, incoming=FAIL, resolved=FAIL") `
+            -and ($databaseConflictText -match "1 updated due to conflicts")) `
+            "Existing PASS is updated by an incoming FAIL and reported" `
+            "exit=$databaseConflictExit result=$databaseResult output='$databaseConflictText'"
+
+        @(
+            "serial_number,product_code,station_code,started_at,result,attempt_no",
+            "SN-DB-CONFLICT,PCA-1180,ICT-01,2026-03-01 10:00:00,PASS,1"
+        ) | Set-Content -LiteralPath $databaseConflictCsv -Encoding UTF8
+
+        $ErrorActionPreference = "Continue"
+        $retainedConflictOutput = & $DotNet run --project .\importer -- $databaseConflictCsv 2>&1
+        $retainedConflictExit = $LASTEXITCODE
+        $ErrorActionPreference = $savedErrorPreference
+        $retainedConflictText = $retainedConflictOutput -join "`n"
+        $retainedResult = Invoke-Sql `
+            "SELECT Result FROM dbo.TestSessions WHERE SerialNumber='SN-DB-CONFLICT' AND AttemptNo=1;"
+
+        Check (($retainedConflictExit -eq 0) `
+            -and ($retainedResult -eq "FAIL") `
+            -and ($retainedConflictText -match "existing=FAIL, incoming=PASS, resolved=FAIL") `
+            -and ($retainedConflictText -match "0 updated due to conflicts")) `
+            "Existing FAIL is retained against an incoming PASS and reported" `
+            "exit=$retainedConflictExit result=$retainedResult output='$retainedConflictText'"
+    } finally {
+        Remove-Item -LiteralPath $databaseConflictCsv -Force -ErrorAction SilentlyContinue
+    }
+
     $invalidCsv = Join-Path ([System.IO.Path]::GetTempPath()) "testops-invalid-$PID.csv"
     try {
         @(

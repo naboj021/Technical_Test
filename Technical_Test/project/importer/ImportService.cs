@@ -14,6 +14,7 @@ public static class ImportService
         var inserted = 0;
         var updated = 0;
         var unchanged = 0;
+        var conflicts = new List<DatabaseConflict>();
 
         try
         {
@@ -49,6 +50,7 @@ public static class ImportService
                 var winner = ExportParser.ResolveConflict(stored, session);
                 if (winner == stored)
                 {
+                    conflicts.Add(new DatabaseConflict(stored, session, winner, false));
                     unchanged++;
                     continue;
                 }
@@ -62,11 +64,12 @@ public static class ImportService
                       WHERE SerialNumber = @SerialNumber AND AttemptNo = @AttemptNo;",
                     winner,
                     transaction);
+                conflicts.Add(new DatabaseConflict(stored, session, winner, true));
                 updated++;
             }
 
             transaction.Commit();
-            return new ImportResult(inserted, updated, unchanged);
+            return new ImportResult(inserted, updated, unchanged, conflicts);
         }
         catch
         {
