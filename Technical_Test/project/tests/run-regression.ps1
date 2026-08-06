@@ -69,6 +69,27 @@ ROLLBACK TRANSACTION;
         "January final yield" `
         "expected 2139,2043,95.51; procedure missing or actual output differs"
 
+    $finalCutoffScenario = Invoke-Sql @"
+BEGIN TRANSACTION;
+INSERT dbo.TestSessions (SerialNumber, ProductCode, StationCode, StartedAt, Result, AttemptNo) VALUES
+('TEST-LATE-PASS', 'PCA-1180', 'ICT-01', '2032-01-10 09:00:00', 'FAIL', 1),
+('TEST-LATE-PASS', 'PCA-1180', 'ICT-01', '2032-02-01 09:00:00', 'PASS', 2),
+('TEST-IN-PERIOD-REPAIR', 'PCA-1180', 'ICT-01', '2032-01-10 10:00:00', 'FAIL', 1),
+('TEST-IN-PERIOD-REPAIR', 'PCA-1180', 'ICT-01', '2032-01-31 23:59:59', 'PASS', 2),
+('TEST-DIRECT-PASS', 'PCA-1180', 'ICT-01', '2032-01-10 11:00:00', 'PASS', 1);
+EXEC dbo.usp_GetFinalYield @FromDate='2032-01-01', @ToDate='2032-01-31';
+ROLLBACK TRANSACTION;
+"@
+    Check ($finalCutoffScenario -eq "3,2,66.67") `
+        "Final yield is measured as of period end" `
+        "expected 3,2,66.67 with the February PASS excluded; actual $finalCutoffScenario"
+
+    $emptyCohort = Invoke-Sql `
+        "EXEC dbo.usp_GetFinalYield @FromDate='2040-01-01', @ToDate='2040-01-31';"
+    Check ($emptyCohort -eq "0,0,NULL") `
+        "Final yield handles an empty cohort" `
+        "expected 0,0,NULL without a divide-by-zero error; actual $emptyCohort"
+
     $page = Invoke-WebRequest -Uri "http://localhost:8080/?from=2026-01-01&to=2026-01-31" -UseBasicParsing
     Check (($page.StatusCode -eq 200) `
         -and ($page.Content -match "First pass yield") `
@@ -161,6 +182,56 @@ WHERE AttemptNo = 1
         $concurrentFiles | ForEach-Object {
             Remove-Item -LiteralPath $_ -Force -ErrorAction SilentlyContinue
         }
+    }
+
+    $databaseConflictCsv = Join-Path ([System.IO.Path]::GetTempPath()) "testops-db-conflict-$PID.csv"
+    try {
+        Invoke-Sql @"
+INSERT dbo.TestSessions (SerialNumber, ProductCode, StationCode, StartedAt, Result, AttemptNo)
+VALUES ('SN-DB-CONFLICT', 'PCA-1180', 'ICT-01', '2026-03-01 10:00:00', 'PASS', 1);
+SELECT 'OK';
+"@ | Out-Null
+        @(
+            "serial_number,product_code,station_code,started_at,result,attempt_no",
+            "SN-DB-CONFLICT,PCA-1180,ICT-01,2026-03-01 10:00:00,FAIL,1"
+        ) | Set-Content -LiteralPath $databaseConflictCsv -Encoding UTF8
+
+        $ErrorActionPreference = "Continue"
+        $databaseConflictOutput = & $DotNet run --project .\importer -- $databaseConflictCsv 2>&1
+        $databaseConflictExit = $LASTEXITCODE
+        $ErrorActionPreference = $savedErrorPreference
+        $databaseConflictText = $databaseConflictOutput -join "`n"
+        $databaseResult = Invoke-Sql `
+            "SELECT Result FROM dbo.TestSessions WHERE SerialNumber='SN-DB-CONFLICT' AND AttemptNo=1;"
+
+        Check (($databaseConflictExit -eq 0) `
+            -and ($databaseResult -eq "FAIL") `
+            -and ($databaseConflictText -match "existing=PASS, incoming=FAIL, resolved=FAIL") `
+            -and ($databaseConflictText -match "1 updated due to conflicts")) `
+            "Existing PASS is updated by an incoming FAIL and reported" `
+            "exit=$databaseConflictExit result=$databaseResult output='$databaseConflictText'"
+
+        @(
+            "serial_number,product_code,station_code,started_at,result,attempt_no",
+            "SN-DB-CONFLICT,PCA-1180,ICT-01,2026-03-01 10:00:00,PASS,1"
+        ) | Set-Content -LiteralPath $databaseConflictCsv -Encoding UTF8
+
+        $ErrorActionPreference = "Continue"
+        $retainedConflictOutput = & $DotNet run --project .\importer -- $databaseConflictCsv 2>&1
+        $retainedConflictExit = $LASTEXITCODE
+        $ErrorActionPreference = $savedErrorPreference
+        $retainedConflictText = $retainedConflictOutput -join "`n"
+        $retainedResult = Invoke-Sql `
+            "SELECT Result FROM dbo.TestSessions WHERE SerialNumber='SN-DB-CONFLICT' AND AttemptNo=1;"
+
+        Check (($retainedConflictExit -eq 0) `
+            -and ($retainedResult -eq "FAIL") `
+            -and ($retainedConflictText -match "existing=FAIL, incoming=PASS, resolved=FAIL") `
+            -and ($retainedConflictText -match "0 updated due to conflicts")) `
+            "Existing FAIL is retained against an incoming PASS and reported" `
+            "exit=$retainedConflictExit result=$retainedResult output='$retainedConflictText'"
+    } finally {
+        Remove-Item -LiteralPath $databaseConflictCsv -Force -ErrorAction SilentlyContinue
     }
 
     $invalidCsv = Join-Path ([System.IO.Path]::GetTempPath()) "testops-invalid-$PID.csv"

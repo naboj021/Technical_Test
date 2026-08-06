@@ -31,10 +31,16 @@ public static class Program
                 Console.Error.WriteLine(issue);
 
             var result = ImportService.Import(ConnectionString, batch.Sessions);
+            foreach (var conflict in result.Conflicts)
+                Console.Error.WriteLine(conflict);
+
             Console.WriteLine(
                 $"Import complete. {result.Inserted} inserted, {result.Updated} updated, " +
                 $"{result.Unchanged} unchanged; {batch.DuplicateCount} duplicate rows ignored, " +
-                $"{batch.ConflictCount} conflicts resolved, {batch.RejectionCount} rows rejected.");
+                $"{batch.ConflictCount} source conflicts resolved, " +
+                $"{result.Conflicts.Count} database conflicts resolved " +
+                $"({result.UpdatedDueToConflict} updated due to conflicts), " +
+                $"{batch.RejectionCount} rows rejected.");
 
             // A scheduler must be able to distinguish a complete import from
             // one where rows were rejected, even though valid rows were saved.

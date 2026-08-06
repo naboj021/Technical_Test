@@ -47,7 +47,9 @@ try {
             <div class="kpi"><?= htmlspecialchars((string) $kpi['FirstPassYieldPct']) ?>%</div>
         </section>
         <section class="kpi-card">
-            <div class="kpi-label">Final yield</div>
+            <div class="kpi-label" title="Pass on any attempt recorded by the reporting period end">
+                Final yield (as of period end)
+            </div>
             <div class="kpi"><?= htmlspecialchars((string) $final['FinalYieldPct']) ?>%</div>
         </section>
     </div>
