@@ -27,6 +27,7 @@ AS
 BEGIN
     SET NOCOUNT ON;
 
+    /* One row per board: only its first test attempt defines FPY. */
     SELECT
         COUNT(*)                                                    AS UnitsTested,
         COUNT(CASE WHEN ts.Result = 'PASS' THEN 1 END)              AS UnitsPassed,
@@ -35,7 +36,53 @@ BEGIN
             / NULLIF(COUNT(*), 0) * 100
         AS DECIMAL(5, 2))                                           AS FirstPassYieldPct
     FROM dbo.TestSessions AS ts
-    WHERE ts.StartedAt BETWEEN @FromDate AND @ToDate;
+    WHERE ts.AttemptNo = 1
+      AND ts.StartedAt >= @FromDate
+      AND ts.StartedAt < DATEADD(DAY, 1, @ToDate);
+END
+GO
+
+/* ------------------------------------------------------------------
+   Final Yield
+
+   Uses the same cohort as FPY (boards first tested in the period),
+   and counts a board as passed if any of its attempts up to the end
+   of that reporting period passed.
+   ------------------------------------------------------------------ */
+
+IF OBJECT_ID('dbo.usp_GetFinalYield', 'P') IS NOT NULL
+    DROP PROCEDURE dbo.usp_GetFinalYield;
+GO
+
+CREATE PROCEDURE dbo.usp_GetFinalYield
+    @FromDate DATE,
+    @ToDate   DATE
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    ;WITH Cohort AS (
+        SELECT ts.SerialNumber
+        FROM dbo.TestSessions AS ts
+        WHERE ts.AttemptNo = 1
+          AND ts.StartedAt >= @FromDate
+          AND ts.StartedAt < DATEADD(DAY, 1, @ToDate)
+    ), PassedBoards AS (
+        SELECT DISTINCT ts.SerialNumber
+        FROM dbo.TestSessions AS ts
+        WHERE ts.Result = 'PASS'
+          AND ts.StartedAt < DATEADD(DAY, 1, @ToDate)
+    )
+    SELECT
+        COUNT(*)                                      AS UnitsTested,
+        COUNT(p.SerialNumber)                         AS UnitsPassed,
+        CAST(
+            CAST(COUNT(p.SerialNumber) AS DECIMAL(18, 4))
+            / NULLIF(COUNT(*), 0) * 100
+        AS DECIMAL(5, 2))                             AS FinalYieldPct
+    FROM Cohort AS c
+    LEFT JOIN PassedBoards AS p
+      ON p.SerialNumber = c.SerialNumber;
 END
 GO
 
