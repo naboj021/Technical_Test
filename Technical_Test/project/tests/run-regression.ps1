@@ -9,6 +9,16 @@ $container = "testops-sql"
 $password = "Str0ng!Passw0rd"
 $failures = [System.Collections.Generic.List[string]]::new()
 
+# Fail before resetting the database if the requested SDK executable cannot be
+# resolved. Otherwise PowerShell treats a missing native command as a
+# non-terminating error and the final summary can be misleading.
+$dotNetCommand = Get-Command $DotNet -ErrorAction SilentlyContinue
+if ($null -eq $dotNetCommand) {
+    Write-Error "The .NET SDK executable '$DotNet' was not found. Install .NET 8, add dotnet to PATH, or pass -DotNet with the full path to dotnet.exe."
+    exit 1
+}
+$DotNet = $dotNetCommand.Source
+
 function Invoke-Sql([string]$query) {
     $output = docker exec $container $sqlcmd -S localhost -U sa -P $password -C `
         -d TestOps -h -1 -W -s "," -Q "SET NOCOUNT ON; $query" 2>&1
