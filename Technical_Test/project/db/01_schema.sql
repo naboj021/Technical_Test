@@ -36,7 +36,14 @@ CREATE TABLE dbo.TestSessions (
     StationCode   NVARCHAR(20)  NULL,
     StartedAt     DATETIME2(0)  NOT NULL,
     Result        NVARCHAR(10)  NOT NULL,
-    AttemptNo     INT           NOT NULL CONSTRAINT DF_TestSessions_AttemptNo DEFAULT (1)
+    AttemptNo     INT           NOT NULL CONSTRAINT DF_TestSessions_AttemptNo DEFAULT (1),
+    CONSTRAINT UQ_TestSessions_BoardAttempt UNIQUE (SerialNumber, AttemptNo),
+    CONSTRAINT CK_TestSessions_Result CHECK (Result IN ('PASS', 'FAIL')),
+    CONSTRAINT CK_TestSessions_AttemptNo CHECK (AttemptNo > 0),
+    CONSTRAINT FK_TestSessions_Product FOREIGN KEY (ProductCode)
+        REFERENCES dbo.Products (ProductCode),
+    CONSTRAINT FK_TestSessions_Station FOREIGN KEY (StationCode)
+        REFERENCES dbo.Stations (StationCode)
 );
 GO
 
