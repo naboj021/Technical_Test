@@ -70,11 +70,14 @@ ROLLBACK TRANSACTION;
         "expected 2139,2043,95.51; procedure missing or actual output differs"
 
     $before = [int](Invoke-Sql "SELECT COUNT(*) FROM dbo.TestSessions;")
+    $savedErrorPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
     $firstImport = & $DotNet run --project .\importer -- .\data\test_export_2026-02.csv 2>&1
     $firstExit = $LASTEXITCODE
     $afterFirst = [int](Invoke-Sql "SELECT COUNT(*) FROM dbo.TestSessions;")
     $secondImport = & $DotNet run --project .\importer -- .\data\test_export_2026-02.csv 2>&1
     $secondExit = $LASTEXITCODE
+    $ErrorActionPreference = $savedErrorPreference
     $afterSecond = [int](Invoke-Sql "SELECT COUNT(*) FROM dbo.TestSessions;")
 
     Check (($firstExit -eq 0) -and ($afterFirst -eq ($before + 1165))) `
@@ -97,6 +100,60 @@ SELECT COUNT(*) FROM (
         "No duplicate board-attempt keys" `
         "found $duplicateKeys duplicated keys"
 
+    $conflictingFailures = [int](Invoke-Sql @"
+SELECT COUNT(*)
+FROM dbo.TestSessions
+WHERE AttemptNo = 1
+  AND Result = 'FAIL'
+  AND SerialNumber IN (
+      'SN-090739', 'SN-090646', 'SN-090921',
+      'SN-090214', 'SN-090092', 'SN-090014'
+  );
+"@)
+    Check ($conflictingFailures -eq 6) `
+        "Ambiguous attempts use the documented FAIL-wins rule" `
+        "expected 6 conservative FAIL results; actual $conflictingFailures"
+
+    $conflictWarnings = [regex]::Matches(($firstImport -join "`n"), "(?m)^WARNING line ").Count
+    Check ($conflictWarnings -eq 7) `
+        "Every source conflict is visible" `
+        "expected 7 conflict warnings for 6 keys; actual $conflictWarnings"
+
+    # A scheduler can overlap runs. Exercise the database constraint and
+    # serializable transaction with two importer processes starting together.
+    powershell -ExecutionPolicy Bypass -File .\db\setup.ps1 | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "Database reset for concurrent test failed." }
+
+    $importerDll = Join-Path $projectRoot "importer\bin\Debug\net8.0\Importer.dll"
+    $exportPath = Join-Path $projectRoot "data\test_export_2026-02.csv"
+    $concurrentFiles = 1..4 | ForEach-Object {
+        Join-Path ([System.IO.Path]::GetTempPath()) "testops-concurrent-$PID-$_.log"
+    }
+    try {
+        $process1 = Start-Process -FilePath $DotNet -ArgumentList @($importerDll, $exportPath) `
+            -RedirectStandardOutput $concurrentFiles[0] -RedirectStandardError $concurrentFiles[1] -PassThru
+        $process2 = Start-Process -FilePath $DotNet -ArgumentList @($importerDll, $exportPath) `
+            -RedirectStandardOutput $concurrentFiles[2] -RedirectStandardError $concurrentFiles[3] -PassThru
+        $process1.WaitForExit()
+        $process2.WaitForExit()
+        $process1.Refresh()
+        $process2.Refresh()
+        $afterConcurrent = [int](Invoke-Sql "SELECT COUNT(*) FROM dbo.TestSessions;")
+        $summary1 = Get-Content -Raw -LiteralPath $concurrentFiles[0]
+        $summary2 = Get-Content -Raw -LiteralPath $concurrentFiles[2]
+
+        Check ($process1.HasExited -and $process2.HasExited `
+            -and ($summary1 -match "Import complete\.") `
+            -and ($summary2 -match "Import complete\.") `
+            -and ($afterConcurrent -eq 3474)) `
+            "Overlapping scheduled runs remain idempotent" `
+            "completed1=$($process1.HasExited) completed2=$($process2.HasExited) rows=$afterConcurrent"
+    } finally {
+        $concurrentFiles | ForEach-Object {
+            Remove-Item -LiteralPath $_ -Force -ErrorAction SilentlyContinue
+        }
+    }
+
     $invalidCsv = Join-Path ([System.IO.Path]::GetTempPath()) "testops-invalid-$PID.csv"
     try {
         @(
@@ -105,8 +162,10 @@ SELECT COUNT(*) FROM (
             "SN-TEST-BAD,PCA-1180,ICT-01,not-a-date,PASS,1"
         ) | Set-Content -LiteralPath $invalidCsv -Encoding UTF8
 
+        $ErrorActionPreference = "Continue"
         $invalidOutput = & $DotNet run --project .\importer -- $invalidCsv 2>&1
         $invalidExit = $LASTEXITCODE
+        $ErrorActionPreference = $savedErrorPreference
         $visible = (($invalidOutput -join "`n") -match "(?i)line\s+3")
         Check (($invalidExit -ne 0) -and $visible) `
             "Invalid row is visible to a scheduler" `

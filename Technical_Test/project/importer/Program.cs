@@ -1,14 +1,7 @@
 using System.Globalization;
-using Dapper;
-using Microsoft.Data.SqlClient;
 
 namespace TestOps.Importer;
 
-/// <summary>
-/// Loads a station export file into dbo.TestSessions.
-///
-/// Run:  dotnet run -- ../data/test_export_2026-02.csv
-/// </summary>
 public static class Program
 {
     private static string ConnectionString =>
@@ -17,84 +10,40 @@ public static class Program
 
     public static int Main(string[] args)
     {
-        // Pin the culture so log output looks the same on every machine,
-        // whatever the operator has set their regional options to.
-        CultureInfo.DefaultThreadCurrentCulture = new CultureInfo("en-US");
+        CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
 
-        if (args.Length < 1)
+        if (args.Length != 1)
         {
             Console.Error.WriteLine("usage: dotnet run -- <path-to-export.csv>");
             return 1;
         }
 
-        var path = args[0];
-        if (!File.Exists(path))
+        if (!File.Exists(args[0]))
         {
-            Console.Error.WriteLine($"file not found: {path}");
+            Console.Error.WriteLine($"file not found: {args[0]}");
             return 1;
         }
 
-        var inserted = Import(path);
-        Console.WriteLine($"Import complete. {inserted} rows written.");
-        return 0;
-    }
-
-    private static int Import(string path)
-    {
-        using var connection = new SqlConnection(ConnectionString);
-        connection.Open();
-
-        var inserted = 0;
-        var lineNumber = 0;
-
-        foreach (var line in File.ReadLines(path))
+        try
         {
-            lineNumber++;
+            var batch = ExportParser.Parse(args[0]);
+            foreach (var issue in batch.Issues)
+                Console.Error.WriteLine(issue);
 
-            if (lineNumber == 1)
-            {
-                continue; // header
-            }
+            var result = ImportService.Import(ConnectionString, batch.Sessions);
+            Console.WriteLine(
+                $"Import complete. {result.Inserted} inserted, {result.Updated} updated, " +
+                $"{result.Unchanged} unchanged; {batch.DuplicateCount} duplicate rows ignored, " +
+                $"{batch.ConflictCount} conflicts resolved, {batch.RejectionCount} rows rejected.");
 
-            try
-            {
-                var parts = line.Split(',');
-
-                var session = new TestSession
-                {
-                    SerialNumber = parts[0],
-                    ProductCode  = parts[1],
-                    StationCode  = parts[2],
-                    StartedAt    = DateTime.Parse(parts[3]),
-                    Result       = parts[4],
-                    AttemptNo    = int.Parse(parts[5])
-                };
-
-                connection.Execute(
-                    @"INSERT INTO dbo.TestSessions
-                          (SerialNumber, ProductCode, StationCode, StartedAt, Result, AttemptNo)
-                      VALUES
-                          (@SerialNumber, @ProductCode, @StationCode, @StartedAt, @Result, @AttemptNo);",
-                    session);
-
-                inserted++;
-            }
-            catch
-            {
-                // Row could not be handled. Move on to the next one.
-            }
+            // A scheduler must be able to distinguish a complete import from
+            // one where rows were rejected, even though valid rows were saved.
+            return batch.RejectionCount == 0 ? 0 : 2;
         }
-
-        return inserted;
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Import failed; transaction rolled back: {ex.Message}");
+            return 1;
+        }
     }
-}
-
-public sealed class TestSession
-{
-    public string SerialNumber { get; set; } = string.Empty;
-    public string ProductCode { get; set; } = string.Empty;
-    public string? StationCode { get; set; }
-    public DateTime StartedAt { get; set; }
-    public string Result { get; set; } = string.Empty;
-    public int AttemptNo { get; set; }
 }
